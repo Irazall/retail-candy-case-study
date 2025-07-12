@@ -7,14 +7,31 @@ output:
     toc: true
     toc_float: true
 knit: (function(inputFile, encoding) {
-  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../output") 
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../output/2021") 
   })
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 # Package names
-packages <- c("tidyr", "dplyr", "data.table", "psych", "corrplot", "car", "hdm", "MuMIn", "finalfit", "knitr", "lme4", "cAIC4", "texreg", "huxtable", "openxlsx", "lmtest")
+packages <- c(
+  "tidyr",
+  "dplyr",
+  "data.table",
+  "psych",
+  "corrplot",
+  "car",
+  "hdm",
+  "MuMIn",
+  "finalfit",
+  "knitr",
+  "lme4",
+  "cAIC4",
+  "texreg",
+  "huxtable",
+  "openxlsx",
+  "lmtest"
+)
 
 # Install packages not yet installed
 installed_packages <- packages %in% rownames(installed.packages())
@@ -31,7 +48,7 @@ invisible(lapply(packages, library, character.only = TRUE))
 
 ## Import data
 ```{r import data}
-data_orig <- fread('../data/candy-data_edit.csv', stringsAsFactors = FALSE)
+data_orig <- fread("../data/candy-data_edit.csv", stringsAsFactors = FALSE)
 data <- data_orig
 characteristica <- "chocolate+fruity+caramel+peanutyalmondy+nougat+crispedricewafer+hard+bar+pluribus"
 ```
@@ -50,13 +67,13 @@ Because we deleted data, we have to readjust percentile rangs of pricepercent an
 
 ```{r adjust percentile ranks}
 # define function
-percentile.ranked <- function(a.vector, value) {
-  length(sort(a.vector)[a.vector < value])/length(a.vector)
+percentile_ranked <- function(a_vector, value) {
+  length(sort(a_vector)[a_vector < value]) / length(a_vector)
 }
 b <- data$sugarpercent
-data$sugarpercent <- sapply(data$sugarpercent, percentile.ranked, a.vector=b) 
+data$sugarpercent <- sapply(data$sugarpercent, percentile_ranked, a_vector = b)
 b <- data$pricepercent
-data$pricepercent <- sapply(data$pricepercent, percentile.ranked, a.vector=b) 
+data$pricepercent <- sapply(data$pricepercent, percentile_ranked, a_vector = b)
 ```
 
 We checked the sugar content manually and is not plausible (Reese Miniatures, Nestle Crunch, Skittles Wild Berry, Milky Way Simply Caramel). Hence, we build a robust data set without the variable sugarpercent.
@@ -78,7 +95,7 @@ robust_num <- subset(robust, select = -c(competitorname, producer))
 
 ### Missing values
 ```{r missing values}
-data %>%missing_plot()
+data %>% missing_plot()
 ```
 
 No missing values.
@@ -86,16 +103,27 @@ No missing values.
 ### Frequencies
 
 ```{r frequencies}
-kable(describe(data, omit=TRUE), caption = "Summary statistics", digits=3)
+kable(describe(data, omit = TRUE), caption = "Summary statistics", digits = 3)
 ```
 ### Correlations
 
 ```{r correlations}
 corrplot(as.matrix(cor(na.omit(data_num))))
 # corrplot for presentation
-data_num_deutsch <- subset(data_num, select=-c(sugarpercent, pricepercent))
-colnames(data_num_deutsch) <- c("Schokolade", "Frucht", "Karamell", "Nuss", "Nougat", "Keksartig", "Hart", "Riegel", "Mehrteilig", "Beliebtheit")
-corrplot(as.matrix(cor(na.omit(data_num_deutsch))), tl.col="black", tl.cex=1.2, tl.srt=50)
+data_num_deutsch <- subset(data_num, select = -c(sugarpercent, pricepercent))
+colnames(data_num_deutsch) <- c(
+  "Schokolade",
+  "Frucht",
+  "Karamell",
+  "Nuss",
+  "Nougat",
+  "Keksartig",
+  "Hart",
+  "Riegel",
+  "Mehrteilig",
+  "Beliebtheit"
+)
+corrplot(as.matrix(cor(na.omit(data_num_deutsch))), tl.col = "black", tl.cex = 1.2, tl.srt = 50)
 ```
 
 High negative correlation between chocolate and fruity. High positive correlation between chocolate and winpercent. Negative correlation between pluribus and bar and bar and fruity. Also positive correlation of pricepercent and winpercent
@@ -134,7 +162,7 @@ write.xlsx(producer_freq, "../output/producer_freq.xlsx")
 We start with an easy linear model with only characteristica.
 
 ```{r usual lm}
-mod_lm <- lm(winpercent~., data_num)
+mod_lm <- lm(winpercent ~ ., data_num)
 summary(mod_lm)
 vif(mod_lm)
 resettest(mod_lm)
@@ -149,7 +177,7 @@ Adjusted R-squared of `r summary(mod_lm)$adj.r.squared` is reasonable. Additiona
 ### Check for quadratic term of pricepercent and sugarpercent
 
 ```{r quadratic pricepercent}
-mod_lm_sq <- lm(winpercent~. + I(pricepercent^2) + I(sugarpercent^2), data_num)
+mod_lm_sq <- lm(winpercent ~ . + I(pricepercent^2) + I(sugarpercent^2), data_num)
 summary(mod_lm_sq)
 vif(mod_lm_sq)
 resettest(mod_lm_sq)
@@ -161,8 +189,6 @@ plot(mod_lm_sq)
 
 The signs of the quadratic terms might give a hint that the marginal effects are decreasing. But as their effect sizes are really small, not significant and the plots against the dependent variable (see response functions) do not give any hints, we should not overinterpret the results. Model specification test did not get better.
 
-
-
 ### Check for interaction terms
 
 Do normal lm with interaction. Note that we do no interaction with sugarpercent and pricepercent as this would be too hard to interpret and blow the model up. Also note that we do only consider interaction of order 2 as higher orders are not available in the data set.
@@ -171,9 +197,8 @@ Do normal lm with interaction. Note that we do no interaction with sugarpercent 
 mod_lm_ia <- lm(paste0("winpercent~(", characteristica, ")^2+."), data_num)
 summary(mod_lm_ia)
 # note: cannot calculate vif as "there are aliased coefficients in the model", hence remove linear dependent
-ld.vars <- attributes(alias(mod_lm_ia)$Complete)$dimnames[[1]]
-mod_lm_ia2 <- lm(paste(paste0("winpercent~(", characteristica, ")^2+."), paste(ld.vars, collapse="-"),
-        sep="-"), data_num)
+ld_vars <- attributes(alias(mod_lm_ia)$Complete)$dimnames[[1]]
+mod_lm_ia2 <- lm(paste(paste0("winpercent~(", characteristica, ")^2+."), paste(ld_vars, collapse = "-"), sep = "-"), data_num)
 summary(mod_lm_ia2)
 resettest(mod_lm_ia2)
 raintest(mod_lm_ia2)
@@ -186,8 +211,8 @@ Could be that chocolate and peanutyalmondy as well as as peanutyalmondy and bar 
 
 ```{r interactions with lasso}
 rs <- rlasso(paste0("winpercent~(", characteristica, ")^2+."), data_num)
-selected = which(coef(rs)[-c(1:1)] !=0) # = Select relevant variables = #
-formula = paste(c("winpercent ~", names(selected)), collapse = "+")
+selected <- which(coef(rs)[-c(1:1)] != 0) # = Select relevant variables = #
+formula <- paste(c("winpercent ~", names(selected)), collapse = "+")
 mod_lm_ia_lasso <- lm(formula, data = data_num)
 summary(mod_lm_ia_lasso)
 resettest(mod_lm_ia_lasso)
@@ -211,9 +236,9 @@ glm_data <- subset(data, select = -c(competitorname))
 data_tmp <- subset(glm_data, select = -c(producer, winpercent))
 all_covariates <- colnames(data_tmp)
 # build formula
-formula = paste(c("winpercent~(1|producer)", all_covariates), collapse = "+")
+formula <- paste(c("winpercent~(1|producer)", all_covariates), collapse = "+")
 # do glm
-mod_glm <- lmer(formula, data = glm_data, control = lmerControl(optimizer="bobyqa"))
+mod_glm <- lmer(formula, data = glm_data, control = lmerControl(optimizer = "bobyqa"))
 summary(mod_glm)
 r.squaredGLMM(mod_glm)
 ```
@@ -221,12 +246,12 @@ r.squaredGLMM(mod_glm)
 Check validity of random intercepts
 
 ```{r validity random intercepts}
-# ICC 
-performance::icc(mod_glm) 
+# ICC
+performance::icc(mod_glm)
 # cAIC
 cAIC(mod_lm)
 cAIC(mod_glm)
-#inspect random intercepts 
+# inspect random intercepts
 ranef(mod_glm)
 ```
 
@@ -236,7 +261,7 @@ Results robust with random intercepts but effect sizes got smaller. Also nougat,
 ### Robustness without sugarpercent
 
 ```{r without sugarpercent}
-mod_wo_sugar <- lm(winpercent~., robust_num)
+mod_wo_sugar <- lm(winpercent ~ ., robust_num)
 summary(mod_wo_sugar)
 resettest(mod_wo_sugar)
 raintest(mod_wo_sugar)
@@ -249,7 +274,7 @@ plot(mod_wo_sugar)
 The previous results for the linear model seem to be still robust. Only hard is not significant any more. But the model specification tests are better! Next look at the quadratic terms.
 
 ```{r quadratic pricepercent robust}
-mod_lm_sq_wo_sugar <- lm(winpercent~. + I(pricepercent^2), robust_num)
+mod_lm_sq_wo_sugar <- lm(winpercent ~ . + I(pricepercent^2), robust_num)
 summary(mod_lm_sq_wo_sugar)
 resettest(mod_lm_sq_wo_sugar)
 raintest(mod_lm_sq_wo_sugar)
@@ -268,20 +293,20 @@ glm_data <- subset(robust, select = -c(competitorname))
 data_tmp <- subset(glm_data, select = -c(producer, winpercent))
 all_covariates <- colnames(data_tmp)
 # build formula
-formula = paste(c("winpercent~(1|producer)", all_covariates), collapse = "+")
+formula <- paste(c("winpercent~(1|producer)", all_covariates), collapse = "+")
 # do glm
-mod_glm_wo_sugar <- lmer(formula, data = glm_data, control = lmerControl(optimizer="bobyqa"))
+mod_glm_wo_sugar <- lmer(formula, data = glm_data, control = lmerControl(optimizer = "bobyqa"))
 summary(mod_glm_wo_sugar)
 r.squaredGLMM(mod_glm_wo_sugar)
 ```
 
 ```{r validity random intercepts robust}
-# ICC 
-performance::icc(mod_glm_wo_sugar) 
+# ICC
+performance::icc(mod_glm_wo_sugar)
 # cAIC
 cAIC(mod_glm_wo_sugar)
 cAIC(mod_glm_wo_sugar)
-#inspect random intercepts 
+# inspect random intercepts
 ranef(mod_glm_wo_sugar)
 ```
 
@@ -295,9 +320,9 @@ summary(mod_lm_ia_wo_sugar)
 Same as before, but better do a double lasso because of colinearity problem.
 
 ```{r interaction lasso robust}
-rs <- rlasso(winpercent~.^2, robust_num)
-selected = which(coef(rs)[-c(1:1)] !=0) # = Select relevant variables = #
-formula = paste(c("winpercent ~", names(selected)), collapse = "+")
+rs <- rlasso(winpercent ~ .^2, robust_num)
+selected <- which(coef(rs)[-c(1:1)] != 0) # = Select relevant variables = #
+formula <- paste(c("winpercent ~", names(selected)), collapse = "+")
 mod_lm_ia_lasso_wo_sugar <- lm(formula, data = data_num)
 summary(mod_lm_ia_lasso_wo_sugar)
 vif(mod_lm_ia_lasso_wo_sugar)
@@ -311,26 +336,26 @@ Chocolate and peanutyalmondy is not important any more. But note that R-square i
 We want to find the candy with the highest winpercent. Given only the data, this is:
 
 ```{r highest winpercent}
-print(data[data$winpercent == max(data$winpercent),])
+print(data[data$winpercent == max(data$winpercent), ])
 ```
 
 Now we can check if there is a better solution by using the lm-model and inventing observations. We use a grid for that.
 
 ```{r grid}
-inventions <- read.csv(text=paste(colnames(data_num), collapse=","))
+inventions <- read.csv(text = paste(colnames(data_num), collapse = ","))
 inventions$winpercent <- NULL
-for(choc in seq(0,1)){
-  for(fruit in seq(0,1)){
-    for(caram in seq(0,1)){
-      for(peanut in seq(0,1)){
-        for(noug in seq(0,1)){
-          for(crisped in seq(0,1)){
-            for(har in seq(0,1)){
-              for(ba in seq(0,1)){
-                for(plur in seq(0,1)){
-                  for(sugar in seq(0,1,0.2)){
-                    for(price in seq(0,1,0.2)){
-                      inventions[nrow(inventions) + 1,] = c(choc, fruit, caram, peanut, noug, crisped, har, ba, plur, sugar, price)
+for (choc in seq(0, 1)) {
+  for (fruit in seq(0, 1)) {
+    for (caram in seq(0, 1)) {
+      for (peanut in seq(0, 1)) {
+        for (noug in seq(0, 1)) {
+          for (crisped in seq(0, 1)) {
+            for (har in seq(0, 1)) {
+              for (ba in seq(0, 1)) {
+                for (plur in seq(0, 1)) {
+                  for (sugar in seq(0, 1, 0.2)) {
+                    for (price in seq(0, 1, 0.2)) {
+                      inventions[nrow(inventions) + 1, ] <- c(choc, fruit, caram, peanut, noug, crisped, har, ba, plur, sugar, price)
                     }
                   }
                 }
@@ -348,13 +373,23 @@ Now we do the prediction but we use a model without sugar in order to prevent un
 
 ```{r prediction}
 inventions_w_win <- inventions
-# filter with row value <= 5, i.e. max(data$sum) 
-inventions_w_win$sum <- inventions_w_win$chocolate + inventions_w_win$fruity + inventions_w_win$caramel + inventions_w_win$peanutyalmondy + inventions_w_win$nougat + inventions_w_win$crispedricewafer + inventions_w_win$hard + inventions_w_win$bar + inventions_w_win$pluribus
+# filter with row value <= 5, i.e. max(data$sum)
+inventions_w_win$sum <- (
+  inventions_w_win$chocolate +
+    inventions_w_win$fruity +
+    inventions_w_win$caramel +
+    inventions_w_win$peanutyalmondy +
+    inventions_w_win$nougat +
+    inventions_w_win$crispedricewafer +
+    inventions_w_win$hard +
+    inventions_w_win$bar +
+    inventions_w_win$pluribus
+)
 inventions_w_win <- inventions_w_win[inventions_w_win$sum <= 5, ]
 # predict
 win <- predict(mod_lm_sq_wo_sugar, inventions_w_win)
 inventions_w_win <- cbind(inventions_w_win, win)
-inventions_w_win <- inventions_w_win[order(-win),]
+inventions_w_win <- inventions_w_win[order(-win), ]
 head(inventions_w_win, 20)
 write.xlsx(head(inventions_w_win, 20), "../output/predictions.xlsx")
 ```
@@ -362,8 +397,20 @@ write.xlsx(head(inventions_w_win, 20), "../output/predictions.xlsx")
 Last, save the regression coefficients for use in the PPT
 
 ```{r regression output}
-hux <- huxtablereg(list(mod_lm, mod_lm_sq, mod_lm_ia, mod_lm_ia_lasso, mod_glm, mod_wo_sugar, mod_lm_sq_wo_sugar),stars = numeric(0), single.row = TRUE)
-quick_pptx(hux, file="../output/regs.pptx")
+hux <- huxtablereg(
+  list(
+    mod_lm,
+    mod_lm_sq,
+    mod_lm_ia,
+    mod_lm_ia_lasso,
+    mod_glm,
+    mod_wo_sugar,
+    mod_lm_sq_wo_sugar
+  ),
+  stars = numeric(0),
+  single.row = TRUE
+)
+quick_pptx(hux, file = "../output/regs.pptx")
 ```
 
 ## Special regression
@@ -373,7 +420,7 @@ We do some special isolated regression to have a better knowledge of certain com
 ### Fruit gums
 
 ```{r fruit gum}
-mod_fruit_gum <- lm(winpercent~pluribus*fruity, data_num)
+mod_fruit_gum <- lm(winpercent ~ pluribus * fruity, data_num)
 summary(mod_fruit_gum)
 ```
 
@@ -382,13 +429,13 @@ Both coefficients are negative, but together it seems okay. Consider that in the
 ### Cookie based
 
 ```{r cookie based}
-mod_cookie <- lm(winpercent~crispedricewafer, data_num)
+mod_cookie <- lm(winpercent ~ crispedricewafer, data_num)
 summary(mod_cookie)
 ```
 
 Assuming cookie-based candy is included in crispedricewafer, cookie-based candy seems to better at least as fruit gums as the coefficient is slightly higher even. This can also be seen in a model with all three variables together. But still note the low adjusted R^2 which indicates that this is not the true model.
 
 ```{r cookie based fruit}
-mod_cookie <- lm(winpercent~crispedricewafer*pluribus*fruity, data_num)
+mod_cookie <- lm(winpercent ~ crispedricewafer * pluribus * fruity, data_num)
 summary(mod_cookie)
 ```

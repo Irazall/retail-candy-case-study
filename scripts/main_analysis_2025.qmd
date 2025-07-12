@@ -1,0 +1,484 @@
+---
+title: "Candy Case Study – Lidl Data & AI"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    self-contained: true
+editor: visual
+output-file: "../output/2025/main_analysis_2025.html"
+---
+
+# 🎯 Goal of the analysis
+
+The goal of the analysis is to determine the properties of successful candies based on a consumer survey. Using this information, we want to give a recommendation for extending the range of candies by the own brand of Lidl.
+
+# 📦 Data preparation
+
+We do not load the original data by FiveThirtyEight but an edited one. In the edited data set, we added a new variable `producer` that indicates the producing company of the candy. We also renamed the variable `winpercent` to `winperc` to better highlight that this variable is a percentage value rather than a percentile rank. Lastly, we removed the variable `sugarpercent` and added a new variable `sugarperc` that indicates the sugar content of the candy in percent. This variable is necessary as the variable `sugarpercent` in the original data set is faulty. For example, Nestle Crunch has 51.4 % sugar and a percentile rank of 0.313 but Sour Patch Kids have 64 % sugar but a lower percentile rank of 0.069. On the contrary, Fun Dip has 83.3 % sugar and a percentile rank of 0.7319. Hence, the order of `sugarpercent` seems incorrect.
+
+```{r init}
+#| warning: false
+
+# Clean environment
+rm(list = ls())
+
+# Load packages
+library(tidyverse) # for data manipulation
+library(ggplot2) # for plotting
+library(here) # for referecing
+library(BMA) # for BMA
+library(corrplot) # for correlation plots
+library(xgboost) # for XGBoost Regression
+library(psych) # for principal component analysis
+library(ranger) # for random forest
+library(caret) # for model training
+library(scales) # for scaling variables
+library(lme4) # for random effects regression
+library(lmtest) # for reset test
+library(car) # for VIF
+library(fastDummies) # for dummy creation
+library(shapviz) # for SHAP values
+library(kernelshap) # for SHAP values
+library(glmnet) # for LASSO regression
+library(kableExtra) # for nicer tables
+
+# Import data
+candy_data <- read_csv(here::here("data", "candy-data_edit.csv"))
+```
+
+## Overview about the data
+
+```{r glimpse}
+#| column: page
+kable(glimpse(candy_data))
+```
+
+## Clean and edit data
+
+We remove one dime and one quarter as they are not really candy and might bias the regression results.
+
+```{r clean data}
+candy_data <- candy_data[!(candy_data$competitorname %in% c("One dime", "One quarter")), ]
+```
+
+Because we deleted data, we have to readjust the percentile ranks of `pricepercent`.
+
+```{r adjust percentile ranks}
+# Define function
+percentile_ranked <- function(a_vector, value) {
+  length(sort(a_vector)[a_vector < value]) / length(a_vector)
+}
+# Apply function
+b <- candy_data$pricepercent
+candy_data$pricepercent <- sapply(candy_data$pricepercent, percentile_ranked, a_vector = b)
+```
+
+We also add a new variable which is the number of features per candy for better selecting the best features later on.
+
+```{r add variables}
+candy_data <- candy_data %>% mutate(
+  num_features = rowSums(dplyr::select(., -competitorname, -producer, -winperc, -pricepercent, -sugarperc))
+)
+```
+
+# 📊 Exploratory analysis
+
+## Summary statistics
+
+First, we give summary statistics for the numeric variables.
+
+```{r summary statistics}
+#| column: page
+kable(psych::describe(candy_data %>% dplyr::select(-producer, -competitorname), ), digits = 3)
+```
+
+Then, we show a table for the producer variable.
+
+```{r table producer}
+kable(table(candy_data$producer))
+```
+
+As there are many producers that only have one candy in our data set, we group them together.
+
+```{r group producer}
+candy_data$producer <- ifelse(candy_data$producer %in% c("Ferrara", "Haribo", "Hershey", "Mars", "Mondelez", "Tootsie"), candy_data$producer, "Other")
+```
+
+## Normality of win percentage
+
+We will use the variable `winpercent` later as the dependent variable. In the best case, this variable is normally distributed. Hence, we plot a histogram and apply a Shapiro-Wilk's test.
+
+```{r winperc normality}
+hist(candy_data$winperc)
+shapiro.test(candy_data$winperc)
+```
+
+The variable seems normally distributed. We won't apply any transformation to it.
+
+## Win percentage by features
+
+We show the distribution of the variable `winpercent` by different features.
+
+```{r winperc per features}
+# Visualize boxplots by features except producer, pricepercent, sugarperc and number of features
+df_long <- candy_data %>% pivot_longer(cols = -c(competitorname, producer, winperc, num_features, pricepercent, sugarperc), names_to = "feature", values_to = "value")
+df_long %>%
+  dplyr::select(-competitorname, -producer, -sugarperc) %>%
+  filter(value == 1) %>%
+  ggplot(aes(x = reorder(feature, value), y = winperc, fill = feature)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(title = "Win percentage by features", x = "Features", y = "Win Percentage") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = sort(unique(df_long$feature)))
+
+# Visualize boxplots winperc by number of features
+ggplot(candy_data, aes(x = reorder(num_features, winperc), y = winperc, fill = as.factor(num_features))) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(title = "Win percentage by number of features", x = "Number of Features", y = "Win Percentage") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = as.character(sort(unique(candy_data$num_features))))
+
+# Visualize boxplots winperc by producer
+ggplot(candy_data, aes(x = reorder(producer, winperc), y = winperc, fill = producer)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(title = "Win percentage by producer", x = "Producer", y = "Win Percentage") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  theme(legend.position = "none") +
+  scale_x_discrete(limits = sort(unique(candy_data$producer)))
+
+# Visualize winperc by pricepercent
+ggplot(candy_data, aes(x = pricepercent, y = winperc)) +
+  geom_point(aes(color = pricepercent), alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Win percentage by price percentile", x = "Price Percentile", y = "Win Percentage") +
+  theme_minimal() +
+  scale_color_gradient(low = "blue", high = "red", name = "Price Percentile")
+
+# Visualize winperc by sugarperc
+ggplot(candy_data, aes(x = sugarperc, y = winperc)) +
+  geom_point(aes(color = sugarperc), alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  labs(title = "Win percentage by sugar percentage", x = "Sugar Percentage", y = "Win Percentage") +
+  theme_minimal() +
+  scale_color_gradient(low = "blue", high = "red", name = "Sugar Percentage")
+```
+
+Interpretation:
+
+-   Hard candy has an overall low win percentage, while peanuty or almondy candy and candy that is crisped or has wafers seems to dominate other features regarding win percentage.
+
+-   The highest win percentage distribution is given for candies with four features.
+
+-   Mars and Hershey produce candies with the highest popularity.
+
+-   The higher the price, the more popular a candy, even though the relation is not strictly linear.
+
+-   The sweeter a candy, the less popular a candy, even though the relation is not strictly linear.
+
+## Correlation
+
+Next, we show a correlation plot, indicating the most common combinations of features in our data set.
+
+```{r correlation}
+corrplot(as.matrix(cor(na.omit(candy_data %>% dplyr::select(-competitorname, -producer)))),
+  tl.col = "black", tl.cex = 1.2, tl.srt = 50
+)
+```
+
+Here, we see, among others, that chocolate and fruity almost never occur together in our data set. Same holds for pluribus and bar. Additionally, chocolate seems pricier but also more popular.
+
+# 📈 Regression analysis
+
+```{r regression}
+# Init data
+lm_data <- candy_data %>% dplyr::select(-num_features, -competitorname)
+
+# Regression model
+lm_model <- lm(winperc ~ . + I(sugarperc^2) + I(pricepercent^2), data = lm_data)
+summary(lm_model)
+
+# Test the model
+resettest(lm_model)
+raintest(lm_model)
+bptest(lm_model)
+kable(vif(lm_model))
+plot(lm_model)
+
+# Visualization of coefficients
+coef_df <- as.data.frame(coef(lm_model)[-1]) %>% rownames_to_column("Feature")
+names(coef_df)[2] <- "Estimate"
+ggplot(coef_df, aes(x = reorder(Feature, Estimate), y = Estimate, fill = Estimate > 0)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(values = c("red", "#002D9C")) +
+  labs(title = "Influence of features on popularity (FE Regression)", x = "Features", y = "Influence (∆Win%)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Interpretation:
+
+-   The linear model with producer fixed-effects shows a rather high R\^2 of around 60 %.
+
+-   The plot `Residuals vs Fitted` does not show any distinctive pattern. The `Q-Q-Residuals` plot indicates that the residuals are more or less normally distributed with some outliers at the margins, e.g., observation 64 (Snickers Crisper) and 11 (Chiclets). The plot `Residuals vs Leverage` shows that the cook's distances are overall low.
+
+-   Following the Breusch-Pagan test, there are no signs of heteroscedasticity. Following the Rainbow test, the linear fit seems feasible. The variance inflation factors highlight that there seems no multicolinearity. The RESET test indicates that there might be a lack of non-linear terms, multicolinearity or interactions. However, adding squared terms of dummy variables would not lead to any difference and we already added squared terms of the other variables. In addition, variance inflation factors indicate no multicolinearity. Hence, we might only miss some non-measured omitted variables or interaction terms. Adding additional interaction terms might not be feasible as this would induce a power problem.
+
+# ✅ Conclusion
+
+Based on the previous analysis, we suggest to create a candy with a maximum of four features as candies with four features have the highest popularity distribution.
+
+Now, there are two options. First, we could just copy the best candy under our own brand. This would lead to the following candy with the following win percentage assuming that the own brand of Lidl falls into the category `Other` as a producer:
+
+```{r  copy}
+best_candy_copy <- candy_data[candy_data$winperc == max(candy_data$winperc), ]
+best_candy_copy$producer <- "Other"
+kable(predict(lm_model, best_candy_copy, interval = "confidence", level = 0.95))
+```
+
+Second, we could build a candy with the four features that bear the largest effect sizes with producer `Other`, median price rank and median sugar percentage would lead to the following win percentage:
+
+```{r best features}
+best_candy_own <- data.frame(
+  competitorname = "New Lidl Candy",
+  producer = "Other",
+  chocolate = 1,
+  fruity = 1,
+  caramel = 0,
+  peanutyalmondy = 1,
+  nougat = 0,
+  crispedricewafer = 1,
+  hard = 1,
+  bar = 0,
+  pluribus = 0,
+  pricepercent = median(candy_data$pricepercent),
+  sugarperc = median(candy_data$sugarperc),
+  num_features = 4
+)
+kable(predict(lm_model, best_candy_own, interval = "confidence", level = 0.95))
+```
+
+While the first option might be safer as it is already tested on the market, the second option could lead to an even greater success as it is something totally new and the upper bound of the confidence interval even outperforms the maximum popularity in the data. However, the second option could also fail. Here, the management must decide whether they want to act more risk-avers of risk-loving.
+
+Either case, introducing the new product can be executed as follows:
+
+-   Introduce the new candy as a limited offer in 50 test branches for four weeks. The test branches should be chosen randomly and stratified by regions and branch types.
+
+-   Then measure the following KPIs prior to the introduction and after the introduction
+
+    -   Turnover and quantity of sold sweets in general
+
+    -   Turnover total per purchase with and without new candy
+
+    -   Number of new candy sold
+
+    -   Rate of sales of new candy (divided by total stock of new candy)
+
+-   Comparison with other sweets as a benchmark for which the same KPIs must be measured
+
+-   Perform A/B tests or difference-in-difference analyses
+
+-   Feedback from clients, e.g., via Lidl Plus or customer surveys
+
+The new candy should aim at increasing sales of the own brand of Lidl and also increasing sales in general (e.g., by attracting new customers or by pursuing customers to stay longer and buy more products).
+
+# 📎 Appendix
+
+Disclaimer: In the following sections, we apply additional methods to analyze the most important features of a popular candy. The following methods are meant as exploratory analyses or robustness checks. The methods are applied only on a surface level without deepening the methodology.
+
+## 📿 Interactions with LASSO
+
+Due to the result of the RESET test, we use additional interaction terms. As we have too many potential interactions, we need a LASSO for regularization.
+
+```{r interaction with lasso}
+# Response and predictors (manually prepare model matrix)
+formula <- ~ (. - competitorname - num_features - producer - pricepercent - sugarperc)^2 + producer + pricepercent + I(pricepercent^2) + I(sugarperc^2)
+
+# Create design matrix for glmnet
+X <- model.matrix(formula, data = candy_data %>% dplyr::select(-winperc))[, -1] # remove intercept
+y <- candy_data$winperc
+
+# Cross-validated Lasso
+set.seed(123)
+cv_lasso <- cv.glmnet(X, y, alpha = 1)
+
+# Best lambda
+best_lambda <- cv_lasso$lambda.min
+
+# Final model
+lasso_model <- glmnet(X, y, alpha = 1, lambda = best_lambda)
+
+# Summary
+coef(lasso_model)
+```
+
+Interpretation:
+
+-   Most single variables are removed by the LASSO. Still, chocolate and fruity remain as positive coefficient, indicating that these are important coefficients.
+
+-   Some interactions are removed. The interactions with the largest positive coefficients are chocolate and peanut/almond, crisped/rice/wafer and bar, and peanut/almond with nougat. The interactions with the largest negative coefficients are peanut/almond and crisped/rice/wafer, peanut/almond and bar, and caramel and peanut/almond.
+
+-   This model can only be seen as robustness check for adding chocolate. Other features are sometimes in contrast to the main regression. This holds even more as we do not have coefficients for every term. In the end, here we see the limits of the small data set.
+
+## 🔍 Cluster analysis
+
+For a better understanding of the main types of candies in the market, we may apply a principal component analysis.
+
+```{r cluster}
+# Keep only numeric variables
+df_cluster <- candy_data %>% dplyr::select(
+  -competitorname,
+  -producer,
+  -winperc,
+  -pricepercent,
+  -num_features
+)
+
+# Standardize
+df_scaled <- scale(df_cluster)
+
+# Determine number of factors
+fa_parallel <- fa.parallel(df_scaled, fa = "both", n.iter = 100)
+
+# PCA using promax
+fit <- principal(df_scaled, nfactors = 3, rotate = "promax", missing = TRUE)
+
+# Summary
+fit
+fit$loading
+```
+
+Interpretation:
+
+-   The scree plot indicates that the data set contains three principal components.
+
+-   The three components can be described as follows:
+
+    1.  Chocolate with caramel and nougat as a bar but not fruity or pluribus
+
+    2.  Hard and fruity with a lot of sugar
+
+    3.  Mostly crisp/rice/wafer witout nougat or peanut/almond
+
+## 🌲 Random Forest
+
+A random forest might be able to better adapt to non-linearities in the data.
+
+```{r random forest}
+set.seed(123)
+# Prepare data
+df <- candy_data %>%
+  fastDummies::dummy_cols("producer", remove_selected_columns = TRUE) %>%
+  dplyr::select(-competitorname, -num_features)
+
+X <- df %>% dplyr::select(-winperc)
+y <- df$winperc
+
+# Fit Random Forest
+rf_model <- ranger(winperc ~ ., data = cbind(X, winperc = y), num.trees = 500)
+
+# Create prediction wrapper
+pred_fun <- function(m, newdata) predict(m, data = newdata)$predictions
+
+# Compute SHAP values via kernelshap
+shap_out <- kernelshap(
+  object = rf_model,
+  X = X,
+  pred_fun = pred_fun,
+  verbose = FALSE
+)
+
+# Convert to shapviz object
+sv <- shapviz(shap_out)
+
+# Feature Importance
+sv_importance(sv, show_numbers = TRUE, max_display = 20)
+
+# SHAP values
+sv_importance(sv, kind = "beeswarm", max_display = 20)
+```
+
+Interpretation:
+
+-   We see that chocolate, peanut/almond and fruity are still important variables. In addition, bar and hard also seems important.
+
+-   The SHAP value indicate that chocolate has a strong positive influence on popularity, while the effect of peanut/almond and crisped/rice/wafer have the same direction with a lesser magnitude. Fruity is more ambiguous. Still, the result is mostly in line with the main regression.
+
+## 🧮 BMA
+
+Until now, we only used frequentist approaches. We also might use Bayesian statistics.
+
+```{r bma}
+set.seed(123)
+bma_data <- candy_data %>%
+  dplyr::select(-competitorname, -num_features) %>%
+  mutate(
+    pricepercent_sq = pricepercent^2,
+    sugarperc_sq = sugarperc^2
+  )
+
+# BMA model
+bma_model <- bicreg(x = bma_data %>% dplyr::select(-winperc), y = bma_data$winperc, strict = FALSE)
+
+# Summary
+summary(bma_model)
+
+# Visualize
+imageplot.bma(bma_model)
+```
+
+Interpretation:
+
+-   Blue cells symbolize negative coefficients, red cells symbolize positive coefficients. The larger a cell, the higher the posterior probability.
+
+-   Almost all variables only have one color, indicating that the estimation is robust regarding the direction of the coefficients.
+
+-   Again, the variables chocolate, fruity, peanuty/almondy and crisped/rice/wafer seem to have the most consistent, positive influence.
+
+## ⚡ XGBoost Regression
+
+XGBoost is relatively new but very popular machine-learning technique that also can be used to estimate variable importance.
+
+```{r xgboost}
+set.seed(123)
+
+# Prepare data
+xgb_data <- candy_data %>%
+  fastDummies::dummy_cols(., c("producer"), remove_selected_columns = TRUE) %>%
+  dplyr::select(-competitorname, -winperc, -num_features)
+
+# Train model
+params <- list(objective = "reg:squarederror", eval_metric = "rmse")
+xgb_model <- xgb.train(
+  params = params,
+  data = xgb.DMatrix(
+    data = as.matrix(xgb_data),
+    label = candy_data$winperc
+  ),
+  nrounds = 100
+)
+
+# Calculate SHAP values
+shp <- shapviz(xgb_model, X_pred = data.matrix(xgb_data), X = xgb_data)
+
+# Show feature importance
+sv_importance(shp, show_numbers = TRUE, max_display = 20)
+
+# Show SHAP values
+sv_importance(shp, kind = "beeswarm", max_display = 20)
+```
+
+Interpretation:
+
+-   Again, chocolate seems is the most important variable. However, in this instance chocolate seems tremendously more important than any other variable. Again, peanuty/almondy and fruity are the top features.
+
+-   The direction and magnitude of the coefficients based on the SHAP values are similar to the main regression at least for chocolate and fruity while peanuty/almondy and crisped/rice/wafer show more mixed results.

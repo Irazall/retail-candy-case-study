@@ -1361,6 +1361,20 @@
       ],
       "Hash": "532d16304274c23c8563f94b79351c86"
     },
+    "kernelshap": {
+      "Package": "kernelshap",
+      "Version": "0.8.0",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "MASS",
+        "R",
+        "foreach",
+        "stats",
+        "utils"
+      ],
+      "Hash": "45a86e9fcddb423ad50bad0cc0941aca"
+    },
     "knitr": {
       "Package": "knitr",
       "Version": "1.50",

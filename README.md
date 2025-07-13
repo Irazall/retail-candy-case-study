@@ -20,3 +20,7 @@ The analysis was conducted using R, but other tools such as Python, SPSS, Stata,
 
 # Key Focus
 The primary objective was to bridge business strategy with data analytics to support a well-informed product decision. The case study demonstrates how data-driven insights can aid in strategic decision-making for product development in the retail sector.
+
+# Micellaneous
+
+I received this case study twice, in 2021 and 2025. Hence, you will find two scripts in the folder `scripts` and two different output folders in the folder `output`. The second time, the deliverable was only a management summary.

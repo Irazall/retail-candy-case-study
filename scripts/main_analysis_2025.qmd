@@ -1,12 +1,12 @@
 ---
 title: "Candy Case Study – Lidl Data & AI"
+author: "Chris-Gabriel Islam"
 date: "`r Sys.Date()`"
 format:
   html:
     toc: true
     self-contained: true
 editor: visual
-output-file: "../output/2025/main_analysis_2025.html"
 ---
 
 # 🎯 Goal of the analysis
@@ -51,7 +51,7 @@ candy_data <- read_csv(here::here("data", "candy-data_edit.csv"))
 
 ```{r glimpse}
 #| column: page
-kable(glimpse(candy_data))
+kable(glimpse(candy_data), digits = 3)
 ```
 
 ## Clean and edit data
@@ -174,7 +174,7 @@ ggplot(candy_data, aes(x = sugarperc, y = winperc)) +
 
 Interpretation:
 
--   Hard candy has an overall low win percentage, while peanuty or almondy candy and candy that is crisped or has wafers seems to dominate other features regarding win percentage.
+-   Hard candy has an overall low win percentage, while candy with nuts (peanuty/almondy) and candy that is cookie-based (crisped rice/wafer/cookie) seems to dominate other features regarding win percentage.
 
 -   The highest win percentage distribution is given for candies with four features.
 
@@ -212,6 +212,19 @@ raintest(lm_model)
 bptest(lm_model)
 kable(vif(lm_model))
 plot(lm_model)
+
+# Table of coefficients with 95 % CI
+coef_summary <- summary(lm_model)$coefficients
+conf_int <- confint(lm_model, level = 0.95)
+coef_table <- cbind(
+  Estimate = coef_summary[, "Estimate"],
+  `Std. Error` = coef_summary[, "Std. Error"],
+  `t value` = coef_summary[, "t value"],
+  `Pr(>|t|)` = coef_summary[, "Pr(>|t|)"],
+  `CI 2.5%` = conf_int[, 1],
+  `CI 97.5%` = conf_int[, 2]
+)
+kable(print(coef_table), digits = 3)
 
 # Visualization of coefficients
 coef_df <- as.data.frame(coef(lm_model)[-1]) %>% rownames_to_column("Feature")
@@ -325,13 +338,13 @@ Interpretation:
 
 -   Most single variables are removed by the LASSO. Still, chocolate and fruity remain as positive coefficient, indicating that these are important coefficients.
 
--   Some interactions are removed. The interactions with the largest positive coefficients are chocolate and peanut/almond, crisped/rice/wafer and bar, and peanut/almond with nougat. The interactions with the largest negative coefficients are peanut/almond and crisped/rice/wafer, peanut/almond and bar, and caramel and peanut/almond.
+-   Some interactions are removed. The interactions with the largest positive coefficients are chocolate and nut, cookie-based and bar, and nut with nougat. The interactions with the largest negative coefficients are peanut/almond and cookie-based, nut and bar, and caramel and nut.
 
--   This model can only be seen as robustness check for adding chocolate. Other features are sometimes in contrast to the main regression. This holds even more as we do not have coefficients for every term. In the end, here we see the limits of the small data set.
+-   This model can only be seen as robustness check for adding chocolate. Other features are sometimes in contrast to the main regression. This holds even more as we do not have coefficients for every term, especially the nine main features. We also applied a double lasso on the nine main features as main variables (not reported here) with basically again receiving many NAs for the coefficients. In the end, here we see the limits of the small data set.
 
 ## 🔍 Cluster analysis
 
-For a better understanding of the main types of candies in the market, we may apply a principal component analysis.
+For a better understanding of the main types of candies in the market, we may apply a factor analysis.
 
 ```{r cluster}
 # Keep only numeric variables
@@ -346,28 +359,26 @@ df_cluster <- candy_data %>% dplyr::select(
 # Standardize
 df_scaled <- scale(df_cluster)
 
-# Determine number of factors
-fa_parallel <- fa.parallel(df_scaled, fa = "both", n.iter = 100)
-
-# PCA using promax
-fit <- principal(df_scaled, nfactors = 3, rotate = "promax", missing = TRUE)
+# Factor analysis
+fit <- factanal(df_scaled, factors = 4)
 
 # Summary
 fit
-fit$loading
 ```
 
 Interpretation:
 
--   The scree plot indicates that the data set contains three principal components.
+-   Four factors seem like enough, even though the variance explained is rather low and the uniqueness is rather high for some features.
 
--   The three components can be described as follows:
+-   The four factors can be described as follows:
 
-    1.  Chocolate with caramel and nougat as a bar but not fruity or pluribus
+    1.  Chocolate with caramel and nuts as a bar but not fruity or pluribus
 
-    2.  Hard and fruity with a lot of sugar
+    2.  Mostly cookie-based without nougat or nut but with chocolate as a single bar and with only a little sugar
 
-    3.  Mostly crisp/rice/wafer witout nougat or peanut/almond
+    3.  Hard and fruity with a lot of sugar
+
+    4.  Nougat bars with caramel
 
 ## 🌲 Random Forest
 
@@ -409,9 +420,9 @@ sv_importance(sv, kind = "beeswarm", max_display = 20)
 
 Interpretation:
 
--   We see that chocolate, peanut/almond and fruity are still important variables. In addition, bar and hard also seems important.
+-   We see that chocolate, nut and fruity are still important variables. In addition, bar and hard also seems important.
 
--   The SHAP value indicate that chocolate has a strong positive influence on popularity, while the effect of peanut/almond and crisped/rice/wafer have the same direction with a lesser magnitude. Fruity is more ambiguous. Still, the result is mostly in line with the main regression.
+-   The SHAP value indicate that chocolate has a strong positive influence on popularity, while the effect of nut and cookie-based have the same direction with a lesser magnitude. Fruity is more ambiguous. Still, the result is mostly in line with the main regression.
 
 ## 🧮 BMA
 
@@ -442,7 +453,7 @@ Interpretation:
 
 -   Almost all variables only have one color, indicating that the estimation is robust regarding the direction of the coefficients.
 
--   Again, the variables chocolate, fruity, peanuty/almondy and crisped/rice/wafer seem to have the most consistent, positive influence.
+-   Again, the variables chocolate, fruity, nut and cookie-based seem to have the most consistent, positive influence.
 
 ## ⚡ XGBoost Regression
 
@@ -479,6 +490,6 @@ sv_importance(shp, kind = "beeswarm", max_display = 20)
 
 Interpretation:
 
--   Again, chocolate seems is the most important variable. However, in this instance chocolate seems tremendously more important than any other variable. Again, peanuty/almondy and fruity are the top features.
+-   Again, chocolate seems is the most important variable. However, in this instance chocolate seems tremendously more important than any other variable. Again, nut and fruity are the top features.
 
--   The direction and magnitude of the coefficients based on the SHAP values are similar to the main regression at least for chocolate and fruity while peanuty/almondy and crisped/rice/wafer show more mixed results.
+-   The direction and magnitude of the coefficients based on the SHAP values are similar to the main regression at least for chocolate and fruity while nut and cookie-based show more mixed results.

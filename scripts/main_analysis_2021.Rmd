@@ -6,8 +6,9 @@ output:
   html_document:
     toc: true
     toc_float: true
+    self_contained: true
 knit: (function(inputFile, encoding) {
-  rmarkdown::render(inputFile, encoding = encoding, output_dir = "../output/2021") 
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "output/2021") 
   })
 ---
 
@@ -30,7 +31,9 @@ packages <- c(
   "texreg",
   "huxtable",
   "openxlsx",
-  "lmtest"
+  "lmtest",
+  "officer",
+  "flextable"
 )
 
 # Install packages not yet installed
@@ -48,7 +51,7 @@ invisible(lapply(packages, library, character.only = TRUE))
 
 ## Import data
 ```{r import data}
-data_orig <- fread("../data/candy-data_edit.csv", stringsAsFactors = FALSE)
+data_orig <- fread(here::here("data", "candy-data_edit_2021.csv"), stringsAsFactors = FALSE)
 data <- data_orig
 characteristica <- "chocolate+fruity+caramel+peanutyalmondy+nougat+crispedricewafer+hard+bar+pluribus"
 ```
@@ -151,7 +154,7 @@ Producer frequencies
 producer_freq <- table(data$producer)
 producer_freq
 # save for use in presentation
-write.xlsx(producer_freq, "../output/producer_freq.xlsx")
+write.xlsx(producer_freq, here::here("output", "2021", "producer_freq.xlsx"))
 ```
 
 
@@ -247,7 +250,8 @@ Check validity of random intercepts
 
 ```{r validity random intercepts}
 # ICC
-performance::icc(mod_glm)
+icc_output <- performance::icc(mod_glm)
+as.data.frame(icc_output)
 # cAIC
 cAIC(mod_lm)
 cAIC(mod_glm)
@@ -302,7 +306,8 @@ r.squaredGLMM(mod_glm_wo_sugar)
 
 ```{r validity random intercepts robust}
 # ICC
-performance::icc(mod_glm_wo_sugar)
+icc_output <- performance::icc(mod_glm_wo_sugar)
+as.data.frame(icc_output)
 # cAIC
 cAIC(mod_glm_wo_sugar)
 cAIC(mod_glm_wo_sugar)
@@ -391,7 +396,7 @@ win <- predict(mod_lm_sq_wo_sugar, inventions_w_win)
 inventions_w_win <- cbind(inventions_w_win, win)
 inventions_w_win <- inventions_w_win[order(-win), ]
 head(inventions_w_win, 20)
-write.xlsx(head(inventions_w_win, 20), "../output/predictions.xlsx")
+write.xlsx(head(inventions_w_win, 20), here::here("output", "2021", "predictions.xlsx"))
 ```
 
 Last, save the regression coefficients for use in the PPT
@@ -410,7 +415,7 @@ hux <- huxtablereg(
   stars = numeric(0),
   single.row = TRUE
 )
-quick_pptx(hux, file = "../output/regs.pptx")
+quick_pptx(hux, file = here::here("output", "2021", "regs.pptx"))
 ```
 
 ## Special regression

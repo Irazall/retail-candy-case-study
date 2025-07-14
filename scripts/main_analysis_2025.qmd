@@ -44,7 +44,7 @@ library(glmnet) # for LASSO regression
 library(kableExtra) # for nicer tables
 
 # Import data
-candy_data <- read_csv(here::here("data", "candy-data_edit.csv"))
+candy_data <- read_csv(here::here("data", "candy-data_edit_2025.csv"))
 ```
 
 ## Overview about the data
